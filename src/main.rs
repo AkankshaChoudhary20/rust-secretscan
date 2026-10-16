@@ -43,23 +43,30 @@ fn main() -> ExitCode {
 /// :path`), not the working-tree copy -- so a pre-commit hook catches a
 /// secret even if the working tree has since been edited to remove it.
 fn scan_staged() -> std::io::Result<Vec<FileReport>> {
+    scan_staged_at(Path::new("."))
+}
+
+fn scan_staged_at(root: &Path) -> std::io::Result<Vec<FileReport>> {
     let names_output = Command::new("git")
-        .args(["diff", "--cached", "--name-only", "--diff-filter=ACM"])
+        .current_dir(root)
+        .args(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACM"])
         .output()?;
     if !names_output.status.success() {
         return Err(std::io::Error::other(
             String::from_utf8_lossy(&names_output.stderr).to_string(),
         ));
     }
-    let names = String::from_utf8_lossy(&names_output.stdout);
-
     let mut reports = Vec::new();
-    for path in names.lines().filter(|l| !l.is_empty()) {
+    for name in names_output.stdout.split(|byte| *byte == 0).filter(|name| !name.is_empty()) {
+        let path = git_path(name)?;
+        let mut index_path = std::ffi::OsString::from(":");
+        index_path.push(path.as_os_str());
         let show_output = Command::new("git")
-            .args(["show", &format!(":{path}")])
+            .current_dir(root)
+            .arg("show").arg(index_path)
             .output()?;
         if !show_output.status.success() {
-            continue; // e.g. a deleted file that still shows up transiently
+            return Err(std::io::Error::other(String::from_utf8_lossy(&show_output.stderr).to_string()));
         }
         if scanner::looks_binary(&show_output.stdout) {
             continue;
@@ -70,12 +77,24 @@ fn scan_staged() -> std::io::Result<Vec<FileReport>> {
         let findings = scanner::scan_text(&text);
         if !findings.is_empty() {
             reports.push(FileReport {
-                path: Path::new(path).to_path_buf(),
+                path,
                 findings,
             });
         }
     }
     Ok(reports)
+}
+
+#[cfg(unix)]
+fn git_path(bytes: &[u8]) -> std::io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    Ok(std::ffi::OsString::from_vec(bytes.to_vec()).into())
+}
+
+#[cfg(not(unix))]
+fn git_path(bytes: &[u8]) -> std::io::Result<PathBuf> {
+    String::from_utf8(bytes.to_vec()).map(PathBuf::from)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 fn print_reports(reports: &[FileReport]) {
@@ -110,6 +129,26 @@ fn redact(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staged_scan_handles_quoted_newline_and_unicode_paths_and_uses_index() {
+        let dir = std::env::temp_dir().join(format!("staged-secrets-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(Command::new("git").current_dir(&dir).arg("init").output().unwrap().status.success());
+        let names = ["space name.env", "quote\"name.env", "line\nname.env", "café.env"];
+        let key = format!("AKIA{}", "Z".repeat(16));
+        for name in names { std::fs::write(dir.join(name), format!("AWS_ACCESS_KEY_ID={key}\n")).unwrap(); }
+        assert!(Command::new("git").current_dir(&dir).args(["add", "--", "."]).output().unwrap().status.success());
+        for name in names { std::fs::write(dir.join(name), "clean working tree").unwrap(); }
+        let reports = scan_staged_at(&dir).unwrap();
+        assert_eq!(reports.len(), names.len());
+        for name in names {
+            assert!(reports.iter().any(|report| report.path == Path::new(name) &&
+                report.findings.iter().any(|f| f.finding.rule == "aws-access-key-id")));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn redact_masks_the_middle_of_long_secrets() {
