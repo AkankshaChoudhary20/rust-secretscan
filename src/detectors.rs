@@ -116,15 +116,13 @@ const SECRET_NAME_HINTS: [&str; 8] = [
 /// assignments where the variable name suggests a secret and the value
 /// looks randomly generated, regardless of vendor-specific format.
 pub fn detect_generic_secret_assignment(line: &str) -> Vec<Finding> {
-    let lower = line.to_lowercase();
-    let has_hint = SECRET_NAME_HINTS.iter().any(|h| lower.contains(h));
-    if !has_hint {
-        return vec![];
-    }
-
     let Some(sep_pos) = line.find(['=', ':']) else {
         return vec![];
     };
+    let name = line[..sep_pos].to_lowercase();
+    if !SECRET_NAME_HINTS.iter().any(|hint| name.contains(hint)) {
+        return vec![];
+    }
     let value_part = &line[sep_pos + 1..];
 
     scan_tokens(value_part, 16, |token| {
@@ -248,6 +246,17 @@ mod tests {
             detect_generic_secret_assignment(line).is_empty(),
             "a high-entropy value with no key/token/secret hint in the line should not be flagged"
         );
+    }
+
+    #[test]
+    fn secret_name_hint_must_be_on_the_assignment_name() {
+        let value = "aB3xZ9pQr7mN2kLj8FhTz1Qw";
+        let line = format!("description = \"{value}\" # token from a public example");
+        assert!(detect_generic_secret_assignment(&line).is_empty());
+        let line = format!("description = \"secret{value}\"");
+        assert!(detect_generic_secret_assignment(&line).is_empty());
+        let line = format!("API_TOKEN = \"{value}\"");
+        assert_eq!(detect_generic_secret_assignment(&line).len(), 1);
     }
 
     #[test]
