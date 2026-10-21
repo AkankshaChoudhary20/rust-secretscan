@@ -99,3 +99,9 @@ secret already committed to history needs a different tool
 custom rule config file -- rules are hardcoded; adding a
 TOML/YAML rule format is a reasonable next step, deliberately left out to
 keep this small.
+
+## Continuous integration
+
+CI runs `cargo test --locked` (including integration and documentation tests) and builds release binaries with the stable Rust toolchain.
+
+Checks run on pushes and pull requests and can be started manually from the Actions tab. The workflow has read-only repository permissions, cancels superseded runs, and stops after 15 minutes.
