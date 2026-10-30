@@ -175,13 +175,13 @@ mod tests {
         fs::write(dir.join("sub/nested.py"), "x = 1").unwrap();
 
         let files = walk_files(&dir).unwrap();
-        let names: Vec<String> = files
+        let names: Vec<PathBuf> = files
             .iter()
-            .map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().to_string())
+            .map(|p| p.strip_prefix(&dir).unwrap().to_path_buf())
             .collect();
 
-        assert!(names.contains(&"app.py".to_string()));
-        assert!(names.contains(&"sub/nested.py".to_string()));
+        assert!(names.contains(&PathBuf::from("app.py")));
+        assert!(names.contains(&PathBuf::from("sub").join("nested.py")));
         assert!(!names.iter().any(|n| n.starts_with(".git")));
 
         fs::remove_dir_all(&dir).ok();
