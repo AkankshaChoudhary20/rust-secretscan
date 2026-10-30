@@ -131,11 +131,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn staged_scan_handles_quoted_newline_and_unicode_paths_and_uses_index() {
+    fn staged_scan_handles_supported_unusual_paths_and_uses_index() {
         let dir = std::env::temp_dir().join(format!("staged-secrets-{}-{}", std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(Command::new("git").current_dir(&dir).arg("init").output().unwrap().status.success());
+        // Windows forbids double quotes and newlines in filenames.
+        #[cfg(windows)]
+        let names = ["space name.env", "café.env"];
+        #[cfg(not(windows))]
         let names = ["space name.env", "quote\"name.env", "line\nname.env", "café.env"];
         let key = format!("AKIA{}", "Z".repeat(16));
         for name in names { std::fs::write(dir.join(name), format!("AWS_ACCESS_KEY_ID={key}\n")).unwrap(); }
