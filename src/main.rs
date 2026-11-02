@@ -49,7 +49,7 @@ fn scan_staged() -> std::io::Result<Vec<FileReport>> {
 fn scan_staged_at(root: &Path) -> std::io::Result<Vec<FileReport>> {
     let names_output = Command::new("git")
         .current_dir(root)
-        .args(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACM"])
+        .args(["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"])
         .output()?;
     if !names_output.status.success() {
         return Err(std::io::Error::other(
