@@ -56,6 +56,7 @@ const SKIP_DIRS: [&str; 7] = [
 pub fn walk_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     walk_into(root, &mut out)?;
+    out.sort();
     Ok(out)
 }
 
